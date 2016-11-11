@@ -1,12 +1,16 @@
 package io.github.yusaka39.toolkt.concurrent
 
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
+import kotlin.concurrent.thread
 import kotlin.concurrent.write
 
 
-fun <T> promise(procedure: () -> T): Promise<T> {
-
+fun <T> promise(isAsync: Boolean = true, procedure: () -> T): Promise<T> = if (isAsync) {
+    AsynchronousPromise(procedure).apply { this.invoke() }
+} else {
+    SynchronousPromise(procedure).apply { this.invoke() }
 }
 
 abstract class Promise<T> {
@@ -21,8 +25,9 @@ abstract class Promise<T> {
 
     abstract var result: T
 
-    abstract protected fun resolve(result: T)
-    abstract protected fun reject(e: Throwable)
+    abstract internal fun invoke()
+    abstract internal fun resolve(result: T)
+    abstract internal fun reject(e: Throwable?)
 
     abstract fun <U> then(f: (T) -> U): Promise<U>
     abstract fun <U> then(promise: Promise<U>): Promise<U>
@@ -30,12 +35,12 @@ abstract class Promise<T> {
     abstract fun always(procedure: () -> Unit): Promise<T>
 
     abstract fun await(): Unit
-    abstract fun interrupt(): Unit
+    abstract fun throwUncaught()
 }
 
 
-internal class AsynchronousPromise<T>() : Promise<T>() {
-    private var _result: T? = null
+internal abstract class BasePromise<T>(protected val procedure: () -> T) : Promise<T>() {
+
     override var result: T
         set(value) {
             this._result = value
@@ -43,34 +48,90 @@ internal class AsynchronousPromise<T>() : Promise<T>() {
         get() = if (this.isFinished) _result as T else
             throw IllegalStateException("Execution has not finished yet.")
 
-    private var thrown: Throwable? = null
-    private val errorHandlers = mutableListOf<(Throwable) -> Unit>()
-    private val finishHandlers = mutableListOf<() -> Unit>()
+    protected val finishHandlers = mutableListOf<() -> Unit>()
 
+    private var _result: T? = null
+
+    private var next: Promise<*>? = null
+    private var unCaughtThrowable: Throwable? = null
+    private val errorHandlers = mutableListOf<(Throwable) -> Boolean>()
     private val lock = ReentrantReadWriteLock()
 
+    private val latch = CountDownLatch(1)
+
+
+
     override fun resolve(result: T) {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+        this.lock.write {
+            if (this.status != Status.INITIALIZED) {
+                return
+            }
+            this.status = Status.RESOLVED
+        }
+        this.result = result
+        this.latch.countDown()
+        this.next?.invoke()
     }
 
-    override fun reject(e: Throwable) {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun reject(e: Throwable?) {
+        this.lock.write {
+            if (this.status != Status.INITIALIZED) {
+                return
+            }
+            this.status = Status.REJECTED
+            e?.let {
+                this.unCaughtThrowable = e
+                this.errorHandlers.forEach {
+                    if (it(e)) {
+                        this.unCaughtThrowable = null
+                        return@let
+                    }
+                }
+            }
+        }
+        this.latch.countDown()
+        this.next?.reject(this.unCaughtThrowable)
     }
 
     override fun <U> then(f: (T) -> U): Promise<U> {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+        val next = SynchronousPromise { f(this.result) }
+        return this.then(next)
     }
 
     override fun <U> then(promise: Promise<U>): Promise<U> {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+        this.next = promise
+
+        this.lock.read {
+            when (this.status) {
+                Status.RESOLVED -> promise.invoke()
+                Status.REJECTED -> promise.reject(this.unCaughtThrowable)
+                else -> {}
+            }
+        }
+        return promise
     }
 
     override fun <U : Throwable> catch(handler: (U) -> Unit): Promise<T> = this.apply {
         this.lock.read {
+            @Suppress("unchecked_cast")
             if (this.status == Status.REJECTED) {
-
+                try {
+                    val e = this.unCaughtThrowable as U
+                    handler(e)
+                    this.unCaughtThrowable = null
+                } catch (e: ClassCastException) {
+                    // Ignore
+                }
             } else {
-                this.errorHandlers.add { (it as? U)?.let { handler(it) } }
+                this.errorHandlers.add {
+                    try {
+                        val e = it as U
+                        handler(e)
+                        true
+                    } catch (e: ClassCastException) {
+                        false
+                    }
+                }
             }
         }
     }
@@ -80,110 +141,39 @@ internal class AsynchronousPromise<T>() : Promise<T>() {
     }
 
     override fun await() {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+        this.latch.await()
     }
 
-    override fun interrupt() {
-        throw UnsupportedOperationException("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun throwUncaught() {
+        this.unCaughtThrowable?.let {
+            throw it
+        }
     }
-
 }
-//
-//
-//
-//
-//open class HogePromise<T : Any> internal constructor() {
-//    constructor(procedure: () -> T) : this() {
-//        this.resultGetter = procedure
-//    }
-//
-//    var result: T? = null
-//    protected lateinit var resultGetter: () -> T?
-//    private val procedure: () -> Unit by lazy {
-//        fun(): Unit {
-//            try {
-//                this.result = resultGetter()
-//            } catch (e: Exception) {
-//                onCatchCallback(e)
-//            }
-//        }
-//    }
-//    private var onCatchCallback: (Exception) -> Unit = { throw it }
-//
-//    open fun <U : Any> then(f: (T) -> U): Promise<U> {
-//        val promise = Promise<U>()
-//        promise.resultGetter = {
-//            this.procedure()
-//            val result = this.result
-//            if (result == null) {
-//                null
-//            } else {
-//                f(result)
-//            }
-//        }
-//        return promise
-//    }
-//
-//    open fun <U : Any> then(p: Promise<U>) : Promise<U> {
-//        val promise = Promise<U>()
-//        promise.resultGetter = {
-//            this.procedure()
-//            val result = this.result
-//            if (result == null) {
-//                null
-//            } else {
-//                p.procedure()
-//                p.result
-//            }
-//        }
-//        return promise
-//    }
-//
-//    open fun thenOnUiThread(procedure: (T) -> Unit): Promise<Unit> = FinalizedPromise {
-//        this.procedure()
-//        val result = this.result ?: return@FinalizedPromise
-//        this.runOnUiThread {
-//            procedure(result)
-//        }
-//    }
-//
-//    fun <T: Exception> catch(errorHandler: (T) -> Unit) =
-//            this.apply {
-//                this.onCatchCallback = {
-//                    try {
-//                        errorHandler(it as T)
-//                    } catch (e: ClassCastException) {
-//                        throw it
-//                    }
-//                }
-//            }
-//
-//    private fun runOnUiThread(procedure: () -> Unit) {
-//        val handler = Handler(Looper.getMainLooper())
-//        handler.post {
-//            procedure()
-//        }
-//    }
-//
-//    fun sync() = this.apply { this.procedure() }
-//    fun async() = this.apply { thread { this.procedure() } }
-//}
-//
-//private class FinalizedPromise(procedure: () -> Unit) : Promise<Unit>() {
-//    init {
-//        this.resultGetter = procedure
-//    }
-//
-//    override fun <U : Any> then(procedure: (Unit) -> U): Promise<U> {
-//        throw IllegalStateException("The promise already finalized")
-//    }
-//
-//    override fun thenOnUiThread(procedure: (Unit) -> Unit): FinalizedPromise {
-//        throw IllegalStateException("The promise already finalized")
-//    }
-//}
-//
-//class PromiseAdapter<T : Any> : Promise<T> {
-//    constructor(task: AbstractApi.Task<T>) : super(task.procedure)
-//    constructor(task: AbstractDao.Task<T>) : super(task.procedure)
-//}
+
+
+internal class AsynchronousPromise<T>(procedure: () -> T) : BasePromise<T>(procedure) {
+    override fun invoke() {
+        thread {
+            try {
+                this.resolve(this.procedure())
+            } catch (e: Throwable) {
+                this.reject(e)
+            } finally {
+                this.finishHandlers.forEach { it() }
+            }
+        }
+    }
+}
+
+internal class SynchronousPromise<T>(procedure: () -> T) : BasePromise<T>(procedure) {
+    override fun invoke() {
+        try {
+            this.resolve(this.procedure())
+        } catch (e: Throwable) {
+            this.reject(e)
+        } finally {
+            this.finishHandlers.forEach { it() }
+        }
+    }
+}
