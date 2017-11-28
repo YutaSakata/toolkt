@@ -1,5 +1,8 @@
 package io.github.yusaka39.toolkt.concurrent
 
+import io.github.yusaka39.toolkt.container.Either
+import io.github.yusaka39.toolkt.container.left
+import io.github.yusaka39.toolkt.container.right
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
@@ -47,8 +50,12 @@ internal abstract class BasePromise<T>(protected val procedure: () -> T) : Promi
         set(value) {
             this._result = value
         }
-        get() = if (this.isFinished) _result as T else
-            throw IllegalStateException("Execution has not finished yet.")
+        get() = when (this.status) {
+            Status.INITIALIZED -> throw IllegalStateException("Execution has not finished yet.")
+            Status.REJECTED -> throw this.unCaughtThrowable ?:
+                    IllegalStateException("Trying to get result from rejected promise")
+            Status.RESOLVED -> _result as T
+        }
 
     protected val finishHandlers = mutableListOf<() -> Unit>()
 
@@ -179,3 +186,158 @@ internal class SynchronousPromise<T>(procedure: () -> T) : BasePromise<T>(proced
         }
     }
 }
+
+private fun <T> Promise<T>.awaitAndGetResult(): Either<Throwable, T> {
+    this.await()
+    return try {
+        this.throwUncaught()
+        right(this.result)
+    } catch (t: Throwable) {
+        left(t)
+    }
+}
+
+fun <T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        p6: Promise<T6>,
+        p7: Promise<T7>,
+        p8: Promise<T8>,
+        p9: Promise<T9>,
+        p10: Promise<T10>,
+        f: (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft(),
+      p6.awaitAndGetResult().rightOrThrowLeft(),
+      p7.awaitAndGetResult().rightOrThrowLeft(),
+      p8.awaitAndGetResult().rightOrThrowLeft(),
+      p9.awaitAndGetResult().rightOrThrowLeft(),
+      p10.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, T5, T6, T7, T8, T9, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        p6: Promise<T6>,
+        p7: Promise<T7>,
+        p8: Promise<T8>,
+        p9: Promise<T9>,
+        f: (T1, T2, T3, T4, T5, T6, T7, T8, T9) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft(),
+      p6.awaitAndGetResult().rightOrThrowLeft(),
+      p7.awaitAndGetResult().rightOrThrowLeft(),
+      p8.awaitAndGetResult().rightOrThrowLeft(),
+      p9.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, T5, T6, T7, T8, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        p6: Promise<T6>,
+        p7: Promise<T7>,
+        p8: Promise<T8>,
+        f: (T1, T2, T3, T4, T5, T6, T7, T8) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft(),
+      p6.awaitAndGetResult().rightOrThrowLeft(),
+      p7.awaitAndGetResult().rightOrThrowLeft(),
+      p8.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, T5, T6, T7, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        p6: Promise<T6>,
+        p7: Promise<T7>,
+        f: (T1, T2, T3, T4, T5, T6, T7) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft(),
+      p6.awaitAndGetResult().rightOrThrowLeft(),
+      p7.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, T5, T6, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        p6: Promise<T6>,
+        f: (T1, T2, T3, T4, T5, T6) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft(),
+      p6.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, T5, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        p5: Promise<T5>,
+        f: (T1, T2, T3, T4, T5) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft(),
+      p5.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, T4, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        p4: Promise<T4>,
+        f: (T1, T2, T3, T4) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(),
+      p2.awaitAndGetResult().rightOrThrowLeft(),
+      p3.awaitAndGetResult().rightOrThrowLeft(),
+      p4.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, T3, U> `when`(
+        p1: Promise<T1>,
+        p2: Promise<T2>,
+        p3: Promise<T3>,
+        f: (T1, T2, T3) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(), p2.awaitAndGetResult().rightOrThrowLeft(), p3.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, T2, U> `when`(p1: Promise<T1>, p2: Promise<T2>, f: (T1, T2) -> U): Promise<U> = promise {
+    f(p1.awaitAndGetResult().rightOrThrowLeft(), p2.awaitAndGetResult().rightOrThrowLeft())
+}
+
+fun <T1, U> `when`(promise: Promise<T1>, f: (T1) -> U): Promise<U> = promise {
+    f(promise.awaitAndGetResult().rightOrThrowLeft())
+}
+
+
+

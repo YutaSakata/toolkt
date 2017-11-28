@@ -1,6 +1,5 @@
+/*
 package io.github.yusaka39.toolkt.container
-
-import javax.lang.model.util.AbstractAnnotationValueVisitor7
 
 open class Tuple<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8, out T9, out T10>(
         val first: T1,
@@ -280,3 +279,4 @@ fun <T1, T2> tuple(
 ): Tuple2<T1, T2> = Tuple2(
         a1, a2
 )
+*/
