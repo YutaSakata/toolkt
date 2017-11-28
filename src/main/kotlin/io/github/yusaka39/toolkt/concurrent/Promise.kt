@@ -34,6 +34,8 @@ abstract class Promise<T> {
     abstract fun <U: Throwable> catch(handler: (U) -> Unit): Promise<T>
     abstract fun always(procedure: () -> Unit): Promise<T>
 
+    @Deprecated("This method do nothing")
+    fun async() = Unit
     abstract fun await()
     abstract fun throwUncaught()
 }
